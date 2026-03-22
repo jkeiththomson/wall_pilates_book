@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "extendscript-debug",
+      "request": "launch",
+      "name": "Launch in InDesign Main Engine",
+      "hostAppSpecifier": "indesign",
+      "engineName": "main",
+      "script": "${workspaceFolder}/script.jsx"
+    }
+  ]
+}
