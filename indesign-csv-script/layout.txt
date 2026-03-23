@@ -1,0 +1,29 @@
+
+Canvas: 8.5x11 portrait, 0.85" margins
+
+- Structure:
+  - Header (container)
+    - Title (text, one line)
+  - Info (container)
+    - Domino (container)
+      - Level (1, 2, 3)
+      - Reps (number)
+    - Features (container)
+      - Works (text block, variable length)
+      - Benefits (text block, variable length)
+    - Imagery (text block, variable length)
+  - Body (container)
+    - Thumbnails (container with 3 thumbnails, arranged vertically)
+      - Thumb1 (image)
+      - Thumb2 (image)
+      - Thumb3 (image)
+    - Instructions
+      - Instructions1 (first line is "Placement")
+      - Instructions2 (first line is "Moveement")
+      - Instructions3 (first line is "Breath")
+  - Footer (continaer)
+    - Tips (text block, variable length)
+    - Caution (text block, variable length)
+    - QR code (image, fixed size, square) 
+
+

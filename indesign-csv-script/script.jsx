@@ -1,498 +1,147 @@
 #target indesign
 
-var BODY_FRAME_LABEL = "body_frame";
-var BODY_HEADER_STYLE_NAME = "BodyHeader";
-var BODY_COPY_STYLE_NAME = "BodyCopy";
+/*
+Creates the infographic frame layout from the locked spec.
 
-var BODY_SOURCE_FIELDS = ["placement", "movement", "breath"];
-var BODY_SOURCE_FRAME_LABELS = ["placement_frame", "movement_frame", "breath_frame"];
+This version uses ONLY the body source text frames:
+- placement_frame
+- movement_frame
+- breath_frame
 
-var LEVEL_FRAME_LABEL = "level_frame";
-var LEVEL_GRAPHIC_LABEL_PREFIX = "level_dot_";
+It does NOT create overlapping instructions1/2/3 frames.
 
-function trim(str) {
-    return (str || "").replace(/^\s+|\s+$/g, "");
-}
+Footer is a single row:
+- tips_frame
+- caution_frame
+- qr_frame
+*/
 
-function parseCSV(text) {
-    text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-    var rows = [];
-    var row = [];
-    var field = "";
-    var inQuotes = false;
-
-    for (var i = 0; i < text.length; i++) {
-        var c = text.charAt(i);
-        var next = (i + 1 < text.length) ? text.charAt(i + 1) : "";
-
-        if (inQuotes) {
-            if (c === '"' && next === '"') {
-                field += '"';
-                i++;
-            } else if (c === '"') {
-                inQuotes = false;
-            } else {
-                field += c;
-            }
-        } else {
-            if (c === '"') {
-                inQuotes = true;
-            } else if (c === ",") {
-                row.push(field);
-                field = "";
-            } else if (c === "\n") {
-                row.push(field);
-                rows.push(row);
-                row = [];
-                field = "";
-            } else {
-                field += c;
-            }
-        }
-    }
-
-    if (field.length > 0 || row.length > 0) {
-        row.push(field);
-        rows.push(row);
-    }
-
-    return rows;
-}
-
-function readCSV(path) {
-    var f = File(path);
-
-    if (!f.exists) {
-        throw new Error("File not found: " + path);
-    }
-
-    if (!f.open("r")) {
-        throw new Error("Cannot open file: " + path);
-    }
-
-    var t = f.read();
-    f.close();
-    return parseCSV(t);
-}
-
-function findHeaderIndex(headers, fieldName) {
-    for (var i = 0; i < headers.length; i++) {
-        if (trim(headers[i]).toLowerCase() === trim(fieldName).toLowerCase()) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-function getRowValue(headers, row, fieldName) {
-    var idx = findHeaderIndex(headers, fieldName);
-    if (idx < 0) {
-        throw new Error("Field not found in data.csv header: " + fieldName);
-    }
-    return (idx < row.length) ? row[idx] : "";
-}
-
-function findTextFrameByLabel(page, label) {
-    var items = page.allPageItems;
-
-    for (var i = 0; i < items.length; i++) {
-        try {
-            if (
-                items[i].label === label &&
-                items[i].constructor &&
-                items[i].constructor.name === "TextFrame"
-            ) {
-                return items[i];
-            }
-        } catch (e) {}
-    }
-
-    return null;
-}
-
-function removeFrameByLabelIfPresent(page, label) {
-    var frame = findTextFrameByLabel(page, label);
-    if (frame) {
-        try {
-            frame.remove();
-        } catch (e) {}
-    }
-}
-
-function getSwatchByNameOrThrow(doc, swatchName) {
-    try {
-        var sw = doc.swatches.itemByName(swatchName);
-        var name = sw.name;
-        return sw;
-    } catch (e) {
-        throw new Error("Required swatch not found: " + swatchName);
-    }
-}
-
-function parseLevelNumber(value) {
-    var n = parseInt(trim(value), 10);
-
-    if (isNaN(n) || n < 1) {
-        n = 1;
-    }
-    if (n > 3) {
-        n = 3;
-    }
-
-    return n;
-}
-
-function transformValue(fieldName, value) {
-    // Level is drawn as vectors, not inserted as text.
-    return value;
-}
-
-function isBodySourceField(fieldName) {
-    var lowered = trim(fieldName).toLowerCase();
-    for (var i = 0; i < BODY_SOURCE_FIELDS.length; i++) {
-        if (lowered === BODY_SOURCE_FIELDS[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function buildMappings(headers, sourceFields, frameLabels) {
-    var mappings = [];
-    var maxLen = Math.max(sourceFields.length, frameLabels.length);
-
-    for (var i = 0; i < maxLen; i++) {
-        var fieldName = (i < sourceFields.length) ? trim(sourceFields[i]) : "";
-        var frameLabel = (i < frameLabels.length) ? trim(frameLabels[i]) : "";
-
-        if (fieldName === "" && frameLabel === "") {
-            continue;
-        }
-
-        if (fieldName === "") {
-            throw new Error("mappings.csv is missing a field name in column " + (i + 1));
-        }
-
-        if (frameLabel === "") {
-            throw new Error("mappings.csv is missing a frame label in column " + (i + 1));
-        }
-
-        var col = findHeaderIndex(headers, fieldName);
-        if (col < 0) {
-            throw new Error("Field not found in data.csv header: " + fieldName);
-        }
-
-        mappings.push({
-            fieldName: fieldName,
-            frameLabel: frameLabel,
-            columnIndex: col,
-            useBodyFrameOnly: isBodySourceField(fieldName)
-        });
-    }
-
-    if (mappings.length === 0) {
-        throw new Error("No valid mappings found in mappings.csv.");
-    }
-
-    return mappings;
-}
-
-function isThreaded(frame) {
-    try {
-        if (frame.previousTextFrame != null) {
-            return true;
-        }
-    } catch (e) {}
-
-    try {
-        if (frame.nextTextFrame != null) {
-            return true;
-        }
-    } catch (e) {}
-
-    return false;
-}
-
-function assertFrameExistsAndIsUnthreaded(page, label, description, pageIndex) {
-    var frame = findTextFrameByLabel(page, label);
-
-    if (!frame) {
-        throw new Error("Frame not found on page " + pageIndex + ": " + label + " (" + description + ")");
-    }
-
-    if (isThreaded(frame)) {
-        throw new Error("Threaded frame not allowed on page " + pageIndex + ": " + label + " (" + description + ")");
-    }
-
-    return frame;
-}
-
-function assertRequiredFramesAreUnthreaded(page, mappings, pageIndex) {
-    var needsBodyFrame = false;
-
-    for (var i = 0; i < mappings.length; i++) {
-        var mapping = mappings[i];
-
-        if (mapping.useBodyFrameOnly) {
-            needsBodyFrame = true;
-        } else {
-            assertFrameExistsAndIsUnthreaded(page, mapping.frameLabel, mapping.fieldName, pageIndex);
-        }
-    }
-
-    if (needsBodyFrame) {
-        assertFrameExistsAndIsUnthreaded(page, BODY_FRAME_LABEL, "concatenated body", pageIndex);
-    }
-}
-
-function getParagraphStyleIfExists(doc, styleName) {
-    try {
-        var style = doc.paragraphStyles.itemByName(styleName);
-        var name = style.name;
-        return style;
-    } catch (e) {
-        return null;
-    }
-}
-
-function startsWithHeader(text, header) {
-    var normalizedText = trim(text).toLowerCase();
-    var normalizedHeader = trim(header).toLowerCase();
-
-    if (normalizedText.length < normalizedHeader.length) {
-        return false;
-    }
-
-    return normalizedText.indexOf(normalizedHeader) === 0;
-}
-
-function ensureSectionStartsWithHeader(text, header) {
-    var cleanText = trim(text);
-    if (cleanText === "") {
-        return header;
-    }
-
-    if (startsWithHeader(cleanText, header)) {
-        return cleanText;
-    }
-
-    return header + "\r" + cleanText;
-}
-
-function buildBodySections(headers, row) {
-    var placementText = getRowValue(headers, row, "placement");
-    var movementText = getRowValue(headers, row, "movement");
-    var breathText = getRowValue(headers, row, "breath");
-
-    return [
-        ensureSectionStartsWithHeader(placementText, "Placement"),
-        ensureSectionStartsWithHeader(movementText, "Movement"),
-        ensureSectionStartsWithHeader(breathText, "Breath")
-    ];
-}
-
-function buildBodyText(headers, row) {
-    var sections = buildBodySections(headers, row);
-    return sections[0] + "\r\r" + sections[1] + "\r\r" + sections[2];
-}
-
-function applyBodyFrameStyles(frame, doc) {
-    var headerStyle = getParagraphStyleIfExists(doc, BODY_HEADER_STYLE_NAME);
-    var copyStyle = getParagraphStyleIfExists(doc, BODY_COPY_STYLE_NAME);
-
-    if (!headerStyle && !copyStyle) {
+(function () {
+    if (app.documents.length === 0) {
+        alert("Open your InDesign document first.");
         return;
     }
 
-    var headerNames = {
-        "placement": true,
-        "movement": true,
-        "breath": true
-    };
+    var doc = app.activeDocument;
+    var page = doc.pages[0];
 
-    var paragraphs = frame.paragraphs;
-    for (var i = 0; i < paragraphs.length; i++) {
-        var para = paragraphs[i];
-        var paraText = trim(para.contents).replace(/\r$/, "");
-        var lowered = paraText.toLowerCase();
-
-        try {
-            para.clearOverrides();
-        } catch (e) {}
-
-        if (headerNames[lowered]) {
-            if (headerStyle) {
-                para.appliedParagraphStyle = headerStyle;
-            } else {
-                try {
-                    para.fontStyle = "Bold";
-                } catch (e) {}
-            }
-        } else {
-            if (copyStyle) {
-                para.appliedParagraphStyle = copyStyle;
-            }
-        }
-    }
-}
-
-function removeUnusedBodySourceFrames(page) {
-    for (var i = 0; i < BODY_SOURCE_FRAME_LABELS.length; i++) {
-        removeFrameByLabelIfPresent(page, BODY_SOURCE_FRAME_LABELS[i]);
-    }
-}
-
-function removeExistingLevelGraphics(page) {
-    var items = page.allPageItems;
-    var toRemove = [];
-
-    for (var i = 0; i < items.length; i++) {
-        try {
-            if (items[i].label && items[i].label.indexOf(LEVEL_GRAPHIC_LABEL_PREFIX) === 0) {
-                toRemove.push(items[i]);
-            }
-        } catch (e) {}
-    }
-
-    for (var j = 0; j < toRemove.length; j++) {
-        try {
-            toRemove[j].remove();
-        } catch (e) {}
-    }
-}
-
-function drawLevelGraphic(page, levelFrame, rawValue, doc) {
-    removeExistingLevelGraphics(page);
-
-    var n = parseLevelNumber(rawValue);
-    var blackSwatch = getSwatchByNameOrThrow(doc, "Black");
-    var noneSwatch = getSwatchByNameOrThrow(doc, "None");
-
-    levelFrame.contents = "";
-
-    var gb = levelFrame.geometricBounds; // [y1, x1, y2, x2]
-    var y1 = gb[0];
-    var x1 = gb[1];
-    var y2 = gb[2];
-    var x2 = gb[3];
-
-    var width = x2 - x1;
-    var height = y2 - y1;
-
-    var diameter = Math.min(height * 0.8, width / 4.0);
-    if (diameter <= 0) {
-        throw new Error("level_frame has invalid geometry.");
-    }
-
-    var gap = diameter * 0.35;
-    var totalWidth = (diameter * 3) + (gap * 2);
-    var startX = x1 + ((width - totalWidth) / 2.0);
-    var top = y1 + ((height - diameter) / 2.0);
-
-    var created = [];
-
-    for (var i = 0; i < 3; i++) {
-        var left = startX + (i * (diameter + gap));
-        var oval = page.ovals.add(levelFrame.itemLayer);
-        oval.geometricBounds = [top, left, top + diameter, left + diameter];
-        oval.label = LEVEL_GRAPHIC_LABEL_PREFIX + (i + 1);
-
-        if (i < n) {
-            oval.fillColor = blackSwatch;
-            oval.strokeColor = noneSwatch;
-        } else {
-            oval.fillColor = noneSwatch;
-            oval.strokeColor = blackSwatch;
-            oval.strokeWeight = 1.25;
-        }
-
-        created.push(oval);
-    }
+    var originalH = doc.viewPreferences.horizontalMeasurementUnits;
+    var originalV = doc.viewPreferences.verticalMeasurementUnits;
+    doc.viewPreferences.horizontalMeasurementUnits = MeasurementUnits.INCHES;
+    doc.viewPreferences.verticalMeasurementUnits = MeasurementUnits.INCHES;
 
     try {
-        page.groups.add(created);
-    } catch (e) {}
-}
+        var MARGIN = 0.85;
 
-function fillPage(page, headers, row, mappings, pageIndex, doc) {
-    assertRequiredFramesAreUnthreaded(page, mappings, pageIndex);
+        // Header
+        var TITLE_X = 0.0, TITLE_Y = 0.0, TITLE_W = 6.8, TITLE_H = 0.6;
 
-    var needsBodyFrame = false;
+        // Info
+        var LEVEL_X = 0.0, LEVEL_Y = 0.9, LEVEL_W = 1.4, LEVEL_H = 0.5;
+        var REPS_X = 0.0, REPS_Y = 1.4, REPS_W = 1.4, REPS_H = 1.0;
 
-    for (var i = 0; i < mappings.length; i++) {
-        var mapping = mappings[i];
+        var WORKS_X = 1.6, WORKS_Y = 0.9, WORKS_W = 3.0, WORKS_H = 0.7;
+        var BENEFITS_X = 1.6, BENEFITS_Y = 1.6, BENEFITS_W = 3.0, BENEFITS_H = 0.8;
 
-        if (mapping.useBodyFrameOnly) {
-            needsBodyFrame = true;
-            continue;
+        var IMAGERY_X = 4.8, IMAGERY_Y = 0.9, IMAGERY_W = 2.4, IMAGERY_H = 1.5;
+
+        // Body
+        var THUMB_W = 2.6, THUMB_H = 1.7;
+        var THUMB1_X = 0.0, THUMB1_Y = 2.7;
+        var THUMB2_X = 0.0, THUMB2_Y = 4.55;
+        var THUMB3_X = 0.0, THUMB3_Y = 6.4;
+
+        var INSTR_X = 2.8, INSTR_W = 4.0;
+        var PLACEMENT_X = INSTR_X, PLACEMENT_Y = 2.7,  PLACEMENT_W = INSTR_W, PLACEMENT_H = 1.6;
+        var MOVEMENT_X  = INSTR_X, MOVEMENT_Y  = 4.55, MOVEMENT_W  = INSTR_W, MOVEMENT_H  = 1.6;
+        var BREATH_X    = INSTR_X, BREATH_Y    = 6.4,  BREATH_W    = INSTR_W, BREATH_H    = 1.6;
+
+        // Footer: single row
+        var FOOTER_Y = 8.3;
+        var TIPS_X = 0.0, TIPS_Y = FOOTER_Y, TIPS_W = 3.0, TIPS_H = 1.0;
+        var CAUTION_X = 3.1, CAUTION_Y = FOOTER_Y, CAUTION_W = 2.8, CAUTION_H = 1.0;
+        var QR_X = 6.0, QR_Y = FOOTER_Y, QR_W = 0.8, QR_H = 0.8;
+
+        function itemBounds(x, y, w, h) {
+            return [MARGIN + y, MARGIN + x, MARGIN + y + h, MARGIN + x + w];
         }
 
-        var frame = findTextFrameByLabel(page, mapping.frameLabel);
-        var rawValue = (mapping.columnIndex < row.length) ? row[mapping.columnIndex] : "";
-
-        if (trim(mapping.fieldName).toLowerCase() === "level" && trim(mapping.frameLabel).toLowerCase() === LEVEL_FRAME_LABEL) {
-            drawLevelGraphic(page, frame, rawValue, doc);
-        } else {
-            frame.contents = transformValue(mapping.fieldName, rawValue);
+        function getOrCreateLayer(layerName) {
+            try {
+                var layer = doc.layers.itemByName(layerName);
+                var n = layer.name;
+                return layer;
+            } catch (e) {
+                return doc.layers.add({ name: layerName });
+            }
         }
+
+        var textLayer = getOrCreateLayer("Infographic Text");
+        var imageLayer = getOrCreateLayer("Infographic Images");
+
+        function removeItemsByLabel(label) {
+            var items = page.allPageItems;
+            for (var i = items.length - 1; i >= 0; i--) {
+                try {
+                    if (items[i].label === label) {
+                        items[i].remove();
+                    }
+                } catch (e) {}
+            }
+        }
+
+        function makeTextFrame(label, x, y, w, h, placeholder, layer) {
+            removeItemsByLabel(label);
+            var tf = page.textFrames.add(layer || textLayer);
+            tf.geometricBounds = itemBounds(x, y, w, h);
+            tf.label = label;
+            tf.contents = placeholder || " ";
+            return tf;
+        }
+
+        function makeGraphicFrame(label, x, y, w, h, layer) {
+            removeItemsByLabel(label);
+            var rect = page.rectangles.add(layer || imageLayer);
+            rect.geometricBounds = itemBounds(x, y, w, h);
+            rect.label = label;
+            try {
+                rect.strokeWeight = 0.5;
+                rect.strokeColor = doc.swatches.itemByName("Black");
+                rect.fillColor = doc.swatches.itemByName("None");
+            } catch (e) {}
+            return rect;
+        }
+
+        page.marginPreferences.top = MARGIN;
+        page.marginPreferences.left = MARGIN;
+        page.marginPreferences.bottom = MARGIN;
+        page.marginPreferences.right = MARGIN;
+
+        makeTextFrame("title_frame", TITLE_X, TITLE_Y, TITLE_W, TITLE_H, "Title");
+
+        makeTextFrame("level_frame", LEVEL_X, LEVEL_Y, LEVEL_W, LEVEL_H, "Level");
+        makeTextFrame("reps_frame", REPS_X, REPS_Y, REPS_W, REPS_H, "Reps");
+        makeTextFrame("works_frame", WORKS_X, WORKS_Y, WORKS_W, WORKS_H, "Works");
+        makeTextFrame("benefits_frame", BENEFITS_X, BENEFITS_Y, BENEFITS_W, BENEFITS_H, "Benefits");
+        makeTextFrame("imagery_frame", IMAGERY_X, IMAGERY_Y, IMAGERY_W, IMAGERY_H, "Imagery");
+
+        makeGraphicFrame("thumb_1", THUMB1_X, THUMB1_Y, THUMB_W, THUMB_H);
+        makeGraphicFrame("thumb_2", THUMB2_X, THUMB2_Y, THUMB_W, THUMB_H);
+        makeGraphicFrame("thumb_3", THUMB3_X, THUMB3_Y, THUMB_W, THUMB_H);
+
+        makeTextFrame("placement_frame", PLACEMENT_X, PLACEMENT_Y, PLACEMENT_W, PLACEMENT_H, "Placement");
+        makeTextFrame("movement_frame", MOVEMENT_X, MOVEMENT_Y, MOVEMENT_W, MOVEMENT_H, "Movement");
+        makeTextFrame("breath_frame", BREATH_X, BREATH_Y, BREATH_W, BREATH_H, "Breath");
+
+        makeTextFrame("tips_frame", TIPS_X, TIPS_Y, TIPS_W, TIPS_H, "Tips");
+        makeTextFrame("caution_frame", CAUTION_X, CAUTION_Y, CAUTION_W, CAUTION_H, "Caution");
+        makeGraphicFrame("qr_frame", QR_X, QR_Y, QR_W, QR_H);
+
+        alert("Infographic frames created on page 1.");
+    } catch (err) {
+        alert("Failed:\n" + err);
+    } finally {
+        doc.viewPreferences.horizontalMeasurementUnits = originalH;
+        doc.viewPreferences.verticalMeasurementUnits = originalV;
     }
-
-    if (needsBodyFrame) {
-        var bodyFrame = findTextFrameByLabel(page, BODY_FRAME_LABEL);
-        bodyFrame.contents = buildBodyText(headers, row);
-        applyBodyFrameStyles(bodyFrame, doc);
-        removeUnusedBodySourceFrames(page);
-    }
-}
-
-try {
-    var base = "~/dev/yy/wall_pilates_book/indesign-csv-script/";
-    var data = readCSV(base + "data.csv");
-    var map = readCSV(base + "mappings.csv");
-
-    if (data.length < 2) {
-        throw new Error("data.csv must have a header row and at least one data row.");
-    }
-
-    if (map.length < 2) {
-        throw new Error("mappings.csv must have two rows.");
-    }
-
-    if (app.documents.length === 0) {
-        throw new Error("Open your InDesign document first.");
-    }
-
-    var doc = app.activeDocument;
-
-    if (doc.pages.length === 0) {
-        throw new Error("The InDesign document has no pages.");
-    }
-
-    var headers = data[0];
-    var sourceFields = map[0];
-    var frameLabels = map[1];
-    var mappings = buildMappings(headers, sourceFields, frameLabels);
-    var dataCount = data.length - 1;
-
-    var templatePage = doc.pages[0];
-
-    assertRequiredFramesAreUnthreaded(templatePage, mappings, 1);
-
-    while (doc.pages.length > 1) {
-        doc.pages[doc.pages.length - 1].remove();
-    }
-
-    for (var i = 1; i < dataCount; i++) {
-        var newPage = templatePage.duplicate(LocationOptions.AFTER, doc.pages[doc.pages.length - 1]);
-        assertRequiredFramesAreUnthreaded(newPage, mappings, i + 1);
-    }
-
-    for (var p = 0; p < dataCount; p++) {
-        fillPage(doc.pages[p], headers, data[p + 1], mappings, p + 1, doc);
-    }
-
-    alert("Success. Created and filled " + dataCount + " page(s).");
-} catch (e) {
-    alert("FAIL:\n" + e.message);
-}
+})();
