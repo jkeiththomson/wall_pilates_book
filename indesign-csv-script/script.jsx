@@ -8,7 +8,9 @@ This version uses ONLY the body source text frames:
 - movement_frame
 - breath_frame
 
-It does NOT create overlapping instructions1/2/3 frames.
+Tweaks:
+- thumbnails are created as TEXT frames with visible placeholders
+- qr_frame is created as a TEXT frame with visible placeholder text
 
 Footer is a single row:
 - tips_frame
@@ -77,7 +79,6 @@ Footer is a single row:
         }
 
         var textLayer = getOrCreateLayer("Infographic Text");
-        var imageLayer = getOrCreateLayer("Infographic Images");
 
         function removeItemsByLabel(label) {
             var items = page.allPageItems;
@@ -99,19 +100,6 @@ Footer is a single row:
             return tf;
         }
 
-        function makeGraphicFrame(label, x, y, w, h, layer) {
-            removeItemsByLabel(label);
-            var rect = page.rectangles.add(layer || imageLayer);
-            rect.geometricBounds = itemBounds(x, y, w, h);
-            rect.label = label;
-            try {
-                rect.strokeWeight = 0.5;
-                rect.strokeColor = doc.swatches.itemByName("Black");
-                rect.fillColor = doc.swatches.itemByName("None");
-            } catch (e) {}
-            return rect;
-        }
-
         page.marginPreferences.top = MARGIN;
         page.marginPreferences.left = MARGIN;
         page.marginPreferences.bottom = MARGIN;
@@ -125,9 +113,10 @@ Footer is a single row:
         makeTextFrame("benefits_frame", BENEFITS_X, BENEFITS_Y, BENEFITS_W, BENEFITS_H, "Benefits");
         makeTextFrame("imagery_frame", IMAGERY_X, IMAGERY_Y, IMAGERY_W, IMAGERY_H, "Imagery");
 
-        makeGraphicFrame("thumb_1", THUMB1_X, THUMB1_Y, THUMB_W, THUMB_H);
-        makeGraphicFrame("thumb_2", THUMB2_X, THUMB2_Y, THUMB_W, THUMB_H);
-        makeGraphicFrame("thumb_3", THUMB3_X, THUMB3_Y, THUMB_W, THUMB_H);
+        // Thumbnails as placeholder text frames for now
+        makeTextFrame("thumb_1", THUMB1_X, THUMB1_Y, THUMB_W, THUMB_H, "Thumb 1");
+        makeTextFrame("thumb_2", THUMB2_X, THUMB2_Y, THUMB_W, THUMB_H, "Thumb 2");
+        makeTextFrame("thumb_3", THUMB3_X, THUMB3_Y, THUMB_W, THUMB_H, "Thumb 3");
 
         makeTextFrame("placement_frame", PLACEMENT_X, PLACEMENT_Y, PLACEMENT_W, PLACEMENT_H, "Placement");
         makeTextFrame("movement_frame", MOVEMENT_X, MOVEMENT_Y, MOVEMENT_W, MOVEMENT_H, "Movement");
@@ -135,7 +124,7 @@ Footer is a single row:
 
         makeTextFrame("tips_frame", TIPS_X, TIPS_Y, TIPS_W, TIPS_H, "Tips");
         makeTextFrame("caution_frame", CAUTION_X, CAUTION_Y, CAUTION_W, CAUTION_H, "Caution");
-        makeGraphicFrame("qr_frame", QR_X, QR_Y, QR_W, QR_H);
+        makeTextFrame("qr_frame", QR_X, QR_Y, QR_W, QR_H, "QR");
 
         alert("Infographic frames created on page 1.");
     } catch (err) {
