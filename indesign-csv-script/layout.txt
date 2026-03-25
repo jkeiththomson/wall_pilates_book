@@ -1,29 +1,135 @@
+#target indesign
 
-Canvas: 8.5x11 portrait, 0.85" margins
+/*
+Flattened clean initializer.
+No groups. No nested hierarchy. Just flat, labeled text frames.
 
-- Structure:
-  - Header (container)
-    - Title (text, one line)
-  - Info (container)
-    - Domino (container)
-      - Level (1, 2, 3)
-      - Reps (number)
-    - Features (container)
-      - Works (text block, variable length)
-      - Benefits (text block, variable length)
-    - Imagery (text block, variable length)
-  - Body (container)
-    - Thumbnails (container with 3 thumbnails, arranged vertically)
-      - Thumb1 (image)
-      - Thumb2 (image)
-      - Thumb3 (image)
-    - Instructions
-      - Instructions1 (first line is "Placement")
-      - Instructions2 (first line is "Moveement")
-      - Instructions3 (first line is "Breath")
-  - Footer (continaer)
-    - Tips (text block, variable length)
-    - Caution (text block, variable length)
-    - QR code (image, fixed size, square) 
+All frames are placed on page 1 and assigned to simple document layers:
+- Header
+- Info
+- Body
+- Footer
 
+This keeps the layout easy to inspect and fully compatible with
+CSV → mappings.csv → label-based filling.
+*/
 
+(function () {
+    if (app.documents.length === 0) {
+        alert("Open your InDesign document first.");
+        return;
+    }
+
+    var doc = app.activeDocument;
+    var page = doc.pages[0];
+
+    var oldH = doc.viewPreferences.horizontalMeasurementUnits;
+    var oldV = doc.viewPreferences.verticalMeasurementUnits;
+    doc.viewPreferences.horizontalMeasurementUnits = MeasurementUnits.INCHES;
+    doc.viewPreferences.verticalMeasurementUnits = MeasurementUnits.INCHES;
+
+    var M = 0.85;
+
+    function gb(x, y, w, h) {
+        return [M + y, M + x, M + y + h, M + x + w];
+    }
+
+    function getOrCreateLayer(name) {
+        try {
+            var layer = doc.layers.itemByName(name);
+            var n = layer.name;
+            return layer;
+        } catch (e) {
+            return doc.layers.add({ name: name });
+        }
+    }
+
+    function removeByLabel(label) {
+        var items = page.allPageItems;
+        for (var i = items.length - 1; i >= 0; i--) {
+            try {
+                if (items[i].label === label) {
+                    items[i].remove();
+                }
+            } catch (e) {}
+        }
+    }
+
+    function makeText(layer, label, x, y, w, h, txt, strokeWeight) {
+        removeByLabel(label);
+        var tf = page.textFrames.add(layer);
+        tf.geometricBounds = gb(x, y, w, h);
+        tf.label = label;
+        tf.contents = txt || " ";
+        try {
+            tf.strokeWeight = (strokeWeight !== undefined) ? strokeWeight : 0.5;
+            tf.strokeColor = doc.swatches.itemByName("Black");
+            tf.fillColor = doc.swatches.itemByName("None");
+            tf.textFramePreferences.insetSpacing = [0.03, 0.03, 0.03, 0.03];
+        } catch (e) {}
+        return tf;
+    }
+
+    try {
+        page.marginPreferences.top = M;
+        page.marginPreferences.left = M;
+        page.marginPreferences.bottom = M;
+        page.marginPreferences.right = M;
+
+        var headerLayer = getOrCreateLayer("Header");
+        var infoLayer = getOrCreateLayer("Info");
+        var bodyLayer = getOrCreateLayer("Body");
+        var footerLayer = getOrCreateLayer("Footer");
+
+        // ---------------- HEADER ----------------
+        makeText(headerLayer, "title_frame", 0.0, 0.0, 6.8, 0.6, "Title");
+
+        // ---------------- INFO ----------------
+        var INFO_Y = 0.8;
+
+        // Compact domino, flattened
+        makeText(infoLayer, "domino_container",        0.00, INFO_Y,        1.50, 1.60, "DOMINO", 0.75);
+
+        makeText(infoLayer, "domino_top_container",    0.05, INFO_Y + 0.05, 1.40, 0.70, "TOP", 0.6);
+        makeText(infoLayer, "domino_top_label",        0.10, INFO_Y + 0.15, 0.80, 0.18, "LEVEL", 0.4);
+        makeText(infoLayer, "level_frame",             0.10, INFO_Y + 0.39, 1.10, 0.20, "●●○", 0.4);
+
+        makeText(infoLayer, "domino_bottom_container", 0.05, INFO_Y + 0.85, 1.40, 0.70, "BOTTOM", 0.6);
+        makeText(infoLayer, "domino_bottom_label",     0.10, INFO_Y + 0.95, 0.80, 0.18, "REPS", 0.4);
+        makeText(infoLayer, "reps_frame",              0.10, INFO_Y + 1.19, 1.10, 0.22, "10", 0.4);
+
+        makeText(infoLayer, "works_frame",             1.70, INFO_Y,        3.00, 0.80, "Works");
+        makeText(infoLayer, "benefits_frame",          1.70, INFO_Y + 0.90, 3.00, 0.80, "Benefits");
+        makeText(infoLayer, "imagery_frame",           4.90, INFO_Y,        1.90, 1.70, "Imagery");
+
+        // ---------------- BODY ----------------
+        var BODY_Y = 2.9;
+
+        makeText(bodyLayer, "thumb_1",                 0.00, BODY_Y,        2.60, 1.60, "Thumb 1");
+        makeText(bodyLayer, "thumb_2",                 0.00, BODY_Y + 1.70, 2.60, 1.60, "Thumb 2");
+        makeText(bodyLayer, "thumb_3",                 0.00, BODY_Y + 3.40, 2.60, 1.60, "Thumb 3");
+
+        makeText(bodyLayer, "instructions1_frame",     2.80, BODY_Y,        4.00, 1.60, "Placement...");
+        makeText(bodyLayer, "instructions2_frame",     2.80, BODY_Y + 1.70, 4.00, 1.60, "Movement...");
+        makeText(bodyLayer, "instructions3_frame",     2.80, BODY_Y + 3.40, 4.00, 1.60, "Breath...");
+
+        // Explicit source frames, also flat
+        makeText(bodyLayer, "placement_frame",         2.80, BODY_Y,        4.00, 1.60, "Placement...");
+        makeText(bodyLayer, "movement_frame",          2.80, BODY_Y + 1.70, 4.00, 1.60, "Movement...");
+        makeText(bodyLayer, "breath_frame",            2.80, BODY_Y + 3.40, 4.00, 1.60, "Breath...");
+
+        // ---------------- FOOTER ----------------
+        var FOOT_Y = BODY_Y + 5.2;
+
+        makeText(footerLayer, "tips_frame",            0.00, FOOT_Y,        3.00, 1.00, "Tips");
+        makeText(footerLayer, "caution_frame",         3.10, FOOT_Y,        2.80, 1.00, "Caution");
+        makeText(footerLayer, "qr_frame",              6.00, FOOT_Y,        0.80, 0.80, "QR");
+
+        alert("Flattened clean initializer created.");
+    } catch (e) {
+        alert("FAIL:\n" + e);
+    } finally {
+        doc.viewPreferences.horizontalMeasurementUnits = oldH;
+        doc.viewPreferences.verticalMeasurementUnits = oldV;
+    }
+})();

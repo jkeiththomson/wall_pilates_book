@@ -1,266 +1,135 @@
-#target indesign
-
-/*
-Create the current text-only frame layout on page 1, remove obsolete overlapping
-instruction frames, then fill page 1 from data.csv using mappings.csv.
-
-Rules:
-- mappings.csv uses TWO-ROW MATRIX format:
-  row 1 = data.csv field names
-  row 2 = InDesign frame labels
-- data.csv row 1 = header
-- data.csv row 2 = page 1 content
-- page 1 only
-*/
+#target "InDesign"
 
 (function () {
+
     if (app.documents.length === 0) {
-        alert("Open your InDesign document first.");
+        alert("Open your InDesign template document first.");
         return;
     }
 
-    var BASE_PATH = "~/dev/yy/wall_pilates_book/indesign-csv-script/";
-    var DATA_PATH = BASE_PATH + "data.csv";
-    var MAPPINGS_PATH = BASE_PATH + "mappings.csv";
-
     var doc = app.activeDocument;
-    var page = doc.pages[0];
 
-    var originalH = doc.viewPreferences.horizontalMeasurementUnits;
-    var originalV = doc.viewPreferences.verticalMeasurementUnits;
-    doc.viewPreferences.horizontalMeasurementUnits = MeasurementUnits.INCHES;
-    doc.viewPreferences.verticalMeasurementUnits = MeasurementUnits.INCHES;
+    var base = Folder.selectDialog("Select folder with data + assets");
+    if (!base) return;
 
-    function trim(str) {
-        return (str || "").replace(/^\s+|\s+$/g, "");
+    var dataCSV = File(base.fsName + "/data.csv");
+    var mappingsCSV = File(base.fsName + "/mappings_updated.csv");
+    var thumbPath = base.fsName + "/placeholder.jpg";
+    var qrPath = base.fsName + "/qr_placeholder.png";
+
+    function trim(s){ return String(s).replace(/^\s+|\s+$/g,""); }
+
+    function requireMapping(map, key){
+        if (!map[key] || trim(map[key]) === "") {
+            throw "Missing mapping for source field: " + key;
+        }
+        return map[key];
     }
 
-    function parseCSV(text) {
-        text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-        var rows = [];
-        var row = [];
-        var field = "";
-        var inQuotes = false;
-
-        for (var i = 0; i < text.length; i++) {
-            var c = text.charAt(i);
-            var next = (i + 1 < text.length) ? text.charAt(i + 1) : "";
-
-            if (inQuotes) {
-                if (c === '"' && next === '"') {
-                    field += '"';
-                    i++;
-                } else if (c === '"') {
-                    inQuotes = false;
-                } else {
-                    field += c;
-                }
-            } else {
-                if (c === '"') {
-                    inQuotes = true;
-                } else if (c === ",") {
-                    row.push(field);
-                    field = "";
-                } else if (c === "\n") {
-                    row.push(field);
-                    rows.push(row);
-                    row = [];
-                    field = "";
-                } else {
-                    field += c;
-                }
-            }
+    function parseCSVLine(line){
+        var result=[], current="", inQuotes=false;
+        for (var i=0;i<line.length;i++){
+            var ch=line[i], next=line[i+1];
+            if(ch=='"'){
+                if(inQuotes && next=='"'){current+='"'; i++;}
+                else inQuotes=!inQuotes;
+            } else if(ch=="," && !inQuotes){
+                result.push(current); current="";
+            } else current+=ch;
         }
-
-        if (field.length > 0 || row.length > 0) {
-            row.push(field);
-            rows.push(row);
-        }
-
-        return rows;
+        result.push(current);
+        return result;
     }
 
-    function readCSVFile(path) {
-        var f = File(path);
-        if (!f.exists) {
-            throw new Error("File not found: " + path);
+    function readCSV(file){
+        file.open("r");
+        var raw=file.read();
+        file.close();
+
+        raw=raw.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+        var lines=raw.split("\n");
+
+        var headers=parseCSVLine(lines[0]);
+        var rows=[];
+        for(var i=1;i<lines.length;i++){
+            if(trim(lines[i])==="") continue;
+            rows.push(parseCSVLine(lines[i]));
         }
-        if (!f.open("r")) {
-            throw new Error("Cannot open file: " + path);
-        }
-        var text = f.read();
-        f.close();
-        return parseCSV(text);
+
+        return {headers:headers, rows:rows};
     }
 
-    function findHeaderIndex(headers, fieldName) {
-        for (var i = 0; i < headers.length; i++) {
-            if (trim(headers[i]).toLowerCase() === trim(fieldName).toLowerCase()) {
-                return i;
-            }
+    function readMappings(file){
+        file.open("r");
+        var raw=file.read();
+        file.close();
+
+        var lines=raw.split("\n");
+        var map={}, start=0;
+
+        if(lines[0].toLowerCase().indexOf("source")>-1) start=1;
+
+        for(var i=start;i<lines.length;i++){
+            if(trim(lines[i])==="") continue;
+            var c=parseCSVLine(lines[i]);
+            map[trim(c[0])] = trim(c[1]);
         }
-        return -1;
+        return map;
     }
 
-    function buildMappings(mappingRows) {
-        if (mappingRows.length !== 2) {
-            throw new Error("mappings.csv must contain exactly 2 rows.");
+    function getFrame(id){
+        var items=doc.allPageItems;
+        for(var i=0;i<items.length;i++){
+            if(items[i].name==id || items[i].label==id) return items[i];
         }
-
-        var dataFields = mappingRows[0];
-        var frameLabels = mappingRows[1];
-        var maxLen = Math.max(dataFields.length, frameLabels.length);
-        var mappings = [];
-
-        for (var i = 0; i < maxLen; i++) {
-            var dataField = (i < dataFields.length) ? trim(dataFields[i]) : "";
-            var frameLabel = (i < frameLabels.length) ? trim(frameLabels[i]) : "";
-
-            if (dataField === "" && frameLabel === "") {
-                continue;
-            }
-
-            if (dataField === "" || frameLabel === "") {
-                throw new Error("mappings.csv has a blank entry in column " + (i + 1) + ".");
-            }
-
-            mappings.push({
-                dataField: dataField,
-                frameLabel: frameLabel
-            });
-        }
-
-        if (mappings.length === 0) {
-            throw new Error("No usable mappings found in mappings.csv.");
-        }
-
-        return mappings;
+        throw "Missing frame (name/label): "+id;
     }
 
-    function getOrCreateLayer(layerName) {
-        try {
-            var layer = doc.layers.itemByName(layerName);
-            var n = layer.name;
-            return layer;
-        } catch (e) {
-            return doc.layers.add({ name: layerName });
+    function setText(id,val){
+        getFrame(id).contents = val;
+    }
+
+    function placeImage(id,path){
+        var f=getFrame(id);
+        while(f.allGraphics.length>0) f.allGraphics[0].remove();
+        f.place(File(path));
+    }
+
+    function levelDots(n){
+        n=parseInt(n,10);
+        if(n==1) return "●○○";
+        if(n==2) return "●●○";
+        if(n==3) return "●●●";
+        return "";
+    }
+
+    function val(headers,row,key){
+        for(var i=0;i<headers.length;i++){
+            if(trim(headers[i])==key) return row[i];
         }
+        return "";
     }
 
-    var textLayer = getOrCreateLayer("Infographic Text");
+    try{
+        var data=readCSV(dataCSV);
+        var map=readMappings(mappingsCSV);
+        var r=data.rows[0];
 
-    function itemBounds(x, y, w, h) {
-        var MARGIN = 0.85;
-        return [MARGIN + y, MARGIN + x, MARGIN + y + h, MARGIN + x + w];
+        setText(requireMapping(map,"title"), val(data.headers,r,"title"));
+        setText(requireMapping(map,"level_label"), val(data.headers,r,"level_label"));
+        setText(requireMapping(map,"level"), levelDots(val(data.headers,r,"level")));
+        setText(requireMapping(map,"reps_label"), val(data.headers,r,"reps_label"));
+        setText(requireMapping(map,"reps"), val(data.headers,r,"reps"));
+
+        placeImage(requireMapping(map,"thumb1"), thumbPath);
+        placeImage(requireMapping(map,"thumb2"), thumbPath);
+        placeImage(requireMapping(map,"thumb3"), thumbPath);
+        placeImage(requireMapping(map,"qr_code"), qrPath);
+
+        alert("SUCCESS (mapping validation enabled)");
+
+    } catch(e){
+        alert("ERROR:\n"+e);
     }
 
-    function removeItemsByLabel(label) {
-        var items = page.allPageItems;
-        for (var i = items.length - 1; i >= 0; i--) {
-            try {
-                if (items[i].label === label) {
-                    items[i].remove();
-                }
-            } catch (e) {}
-        }
-    }
-
-    function removeObsoleteInstructionFrames() {
-        removeItemsByLabel("instructions1_frame");
-        removeItemsByLabel("instructions2_frame");
-        removeItemsByLabel("instructions3_frame");
-    }
-
-    function makeTextFrame(label, x, y, w, h, placeholder) {
-        removeItemsByLabel(label);
-        var tf = page.textFrames.add(textLayer);
-        tf.geometricBounds = itemBounds(x, y, w, h);
-        tf.label = label;
-        tf.contents = placeholder || " ";
-        return tf;
-    }
-
-    function findTextFrameByLabel(label) {
-        var items = page.allPageItems;
-        for (var i = 0; i < items.length; i++) {
-            try {
-                if (
-                    items[i].label === label &&
-                    items[i].constructor &&
-                    items[i].constructor.name === "TextFrame"
-                ) {
-                    return items[i];
-                }
-            } catch (e) {}
-        }
-        return null;
-    }
-
-    try {
-        page.marginPreferences.top = 0.85;
-        page.marginPreferences.left = 0.85;
-        page.marginPreferences.bottom = 0.85;
-        page.marginPreferences.right = 0.85;
-
-        // Remove obsolete overlapping frames from earlier layout versions.
-        removeObsoleteInstructionFrames();
-
-        // Create current frame set.
-        makeTextFrame("title_frame",     0.0,  0.0, 6.8, 0.6, "Title");
-
-        makeTextFrame("level_frame",     0.0,  0.9, 1.4, 0.5, "Level");
-        makeTextFrame("reps_frame",      0.0,  1.4, 1.4, 1.0, "Reps");
-        makeTextFrame("works_frame",     1.6,  0.9, 3.0, 0.7, "Works");
-        makeTextFrame("benefits_frame",  1.6,  1.6, 3.0, 0.8, "Benefits");
-        makeTextFrame("imagery_frame",   4.8,  0.9, 2.4, 1.5, "Imagery");
-
-        makeTextFrame("thumb_1",         0.0,  2.7, 2.6, 1.7, "Thumb 1");
-        makeTextFrame("thumb_2",         0.0,  4.55, 2.6, 1.7, "Thumb 2");
-        makeTextFrame("thumb_3",         0.0,  6.4, 2.6, 1.7, "Thumb 3");
-
-        makeTextFrame("placement_frame", 2.8,  2.7, 4.0, 1.6, "Placement");
-        makeTextFrame("movement_frame",  2.8,  4.55, 4.0, 1.6, "Movement");
-        makeTextFrame("breath_frame",    2.8,  6.4, 4.0, 1.6, "Breath");
-
-        makeTextFrame("tips_frame",      0.0,  8.3, 3.0, 1.0, "Tips");
-        makeTextFrame("caution_frame",   3.1,  8.3, 2.8, 1.0, "Caution");
-        makeTextFrame("qr_frame",        6.0,  8.3, 0.8, 0.8, "QR");
-
-        // Fill from CSV.
-        var dataRows = readCSVFile(DATA_PATH);
-        var mappingsRows = readCSVFile(MAPPINGS_PATH);
-
-        if (dataRows.length < 2) {
-            throw new Error("data.csv must have a header row and at least one data row.");
-        }
-
-        var headers = dataRows[0];
-        var page1Row = dataRows[1];
-        var mappings = buildMappings(mappingsRows);
-
-        for (var j = 0; j < mappings.length; j++) {
-            var mapping = mappings[j];
-            var colIndex = findHeaderIndex(headers, mapping.dataField);
-
-            if (colIndex < 0) {
-                throw new Error("Field '" + mapping.dataField + "' from mappings.csv was not found in data.csv.");
-            }
-
-            var frame = findTextFrameByLabel(mapping.frameLabel);
-            if (!frame) {
-                throw new Error("Text frame not found on page 1: " + mapping.frameLabel);
-            }
-
-            var value = (colIndex < page1Row.length) ? page1Row[colIndex] : "";
-            frame.contents = value;
-        }
-
-        alert("Created frames, removed obsolete overlaps, and filled page 1.");
-    } catch (e) {
-        alert("FAIL:\n" + e.message);
-    } finally {
-        doc.viewPreferences.horizontalMeasurementUnits = originalH;
-        doc.viewPreferences.verticalMeasurementUnits = originalV;
-    }
 })();

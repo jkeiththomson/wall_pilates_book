@@ -1,4 +1,4 @@
-source,frame5
+source,frame
 title,TitleFrame
 level_label,LevelLabelFrame
 level,LevelFrame
@@ -6,7 +6,7 @@ reps_label,RepsLabelFrame
 reps,RepsFrame
 works,WorksFrame
 benefits,BenefitsFrame
-imagery,ImageryFrame
+imagery_text,ImageryTextFrame
 thumb1,Thumb1Frame
 thumb2,Thumb2Frame
 thumb3,Thumb3Frame
@@ -14,5 +14,5 @@ placement,PlacementFrame
 movement,MovementFrame
 breath,BreathFrame
 tips,TipsFrame
-caution,CautionFrame,
+caution,CautionFrame
 qr_code,QRCodeFrame
