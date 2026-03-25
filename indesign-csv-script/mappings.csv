@@ -1,4 +1,4 @@
-source,frame5
+source,frame
 title,TitleFrame
 level_label,LevelLabelFrame
 level,LevelFrame
@@ -14,5 +14,5 @@ placement,PlacementFrame
 movement,MovementFrame
 breath,BreathFrame
 tips,TipsFrame
-caution,CautionFrame,
+caution,CautionFrame
 qr_code,QRCodeFrame

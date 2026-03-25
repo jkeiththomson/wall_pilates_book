@@ -9,90 +9,129 @@
 
     var doc = app.activeDocument;
 
-    var base = Folder.selectDialog("Select folder with data + assets");
+    // Select the ASSETS folder
+    var base = Folder.selectDialog("Select the assets folder");
     if (!base) return;
 
     var dataCSV = File(base.fsName + "/data.csv");
-    var mappingsCSV = File(base.fsName + "/mappings_updated.csv");
-    var thumbPath = base.fsName + "/placeholder.jpg";
+    var placeholderPath = base.fsName + "/placeholder.jpg";
     var qrPath = base.fsName + "/qr_placeholder.png";
+    var illustrationsFolder = Folder(base.fsName + "/illustrations");
+
+    if (!dataCSV.exists) {
+        alert("Missing data.csv in selected assets folder.");
+        return;
+    }
+    if (!File(placeholderPath).exists) {
+        alert("Missing placeholder.jpg in selected assets folder.");
+        return;
+    }
+    if (!File(qrPath).exists) {
+        alert("Missing qr_placeholder.png in selected assets folder.");
+        return;
+    }
+    if (!illustrationsFolder.exists) {
+        alert("Missing illustrations folder inside selected assets folder.");
+        return;
+    }
+
+    // HARDCODED FRAME MAP
+    var map = {
+        title: "TitleFrame",
+        level_label: "LevelLabelFrame",
+        level: "LevelFrame",
+        reps_label: "RepsLabelFrame",
+        reps: "RepsFrame",
+        works: "WorksFrame",
+        benefits: "BenefitsFrame",
+        imagery: "ImageryFrame",
+        thumb1: "Thumb1Frame",
+        thumb2: "Thumb2Frame",
+        thumb3: "Thumb3Frame",
+        placement: "PlacementFrame",
+        movement: "MovementFrame",
+        breath: "BreathFrame",
+        tips: "TipsFrame",
+        caution: "CautionFrame",
+        qr_code: "QRCodeFrame"
+    };
 
     function trim(s){ return String(s).replace(/^\s+|\s+$/g,""); }
-
-    function requireMapping(map, key){
-        if (!map[key] || trim(map[key]) === "") {
-            throw "Missing mapping for source field: " + key;
-        }
-        return map[key];
-    }
 
     function parseCSVLine(line){
         var result=[], current="", inQuotes=false;
         for (var i=0;i<line.length;i++){
             var ch=line[i], next=line[i+1];
-            if(ch=='"'){
-                if(inQuotes && next=='"'){current+='"'; i++;}
+            if (ch=='"'){
+                if (inQuotes && next=='"'){ current+='"'; i++; }
                 else inQuotes=!inQuotes;
-            } else if(ch=="," && !inQuotes){
+            } else if (ch=="," && !inQuotes){
                 result.push(current); current="";
-            } else current+=ch;
+            } else {
+                current+=ch;
+            }
         }
         result.push(current);
         return result;
     }
 
     function readCSV(file){
-        file.open("r");
+        file.encoding = "UTF-8";
+        if (!file.open("r")) throw "Could not open data.csv";
         var raw=file.read();
         file.close();
 
         raw=raw.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
         var lines=raw.split("\n");
 
-        var headers=parseCSVLine(lines[0]);
+        var cleaned=[];
+        for (var i=0;i<lines.length;i++){
+            if (trim(lines[i])!=="") cleaned.push(lines[i]);
+        }
+        if (cleaned.length < 2) throw "data.csv must contain a header row and at least one data row.";
+
+        var headers=parseCSVLine(cleaned[0]);
         var rows=[];
-        for(var i=1;i<lines.length;i++){
-            if(trim(lines[i])==="") continue;
-            rows.push(parseCSVLine(lines[i]));
+        for (var j=1;j<cleaned.length;j++){
+            rows.push(parseCSVLine(cleaned[j]));
         }
 
         return {headers:headers, rows:rows};
     }
 
-    function readMappings(file){
-        file.open("r");
-        var raw=file.read();
-        file.close();
-
-        var lines=raw.split("\n");
-        var map={}, start=0;
-
-        if(lines[0].toLowerCase().indexOf("source")>-1) start=1;
-
-        for(var i=start;i<lines.length;i++){
-            if(trim(lines[i])==="") continue;
-            var c=parseCSVLine(lines[i]);
-            map[trim(c[0])] = trim(c[1]);
+    function requireHeader(headers, key){
+        for (var i=0;i<headers.length;i++){
+            if (trim(headers[i]) == key) return;
         }
-        return map;
+        throw "Missing column in data.csv: " + key;
     }
 
     function getFrame(id){
         var items=doc.allPageItems;
-        for(var i=0;i<items.length;i++){
-            if(items[i].name==id || items[i].label==id) return items[i];
+        for (var i=0;i<items.length;i++){
+            try {
+                if (items[i].name == id || items[i].label == id) return items[i];
+            } catch (e) {}
         }
-        throw "Missing frame (name/label): "+id;
+        throw "Missing frame (name/label): " + id;
     }
 
-    function setText(id,val){
-        getFrame(id).contents = val;
+    function clearAndSetText(id,val){
+        var f=getFrame(id);
+        f.contents="";
+        f.contents=val;
     }
 
     function placeImage(id,path){
         var f=getFrame(id);
-        while(f.allGraphics.length>0) f.allGraphics[0].remove();
+        try {
+            while (f.allGraphics.length>0) f.allGraphics[0].remove();
+        } catch (e) {}
         f.place(File(path));
+        try {
+            f.fit(FitOptions.PROPORTIONALLY);
+            f.fit(FitOptions.CENTER_CONTENT);
+        } catch (e2) {}
     }
 
     function levelDots(n){
@@ -104,32 +143,162 @@
     }
 
     function val(headers,row,key){
-        for(var i=0;i<headers.length;i++){
-            if(trim(headers[i])==key) return row[i];
+        for (var i=0;i<headers.length;i++){
+            if (trim(headers[i])==key) return i < row.length ? row[i] : "";
         }
         return "";
     }
 
-    try{
+    function splitList(s){
+        var parts=String(s).split(",");
+        var out=[];
+        for (var i=0;i<parts.length;i++){
+            var t=trim(parts[i]);
+            if (t!=="") out.push(t);
+        }
+        return out;
+    }
+
+    function buildInstructions(p,m,b){
+        function section(title,val){
+            var arr=splitList(val);
+            if (arr.length===0 || trim(arr[0]).toLowerCase()!=title.toLowerCase()){
+                arr.unshift(title);
+            } else {
+                arr[0]=title;
+            }
+            return arr;
+        }
+
+        var all=[section("Placement",p), section("Movement",m), section("Breath",b)];
+        var lines=[];
+        for (var i=0;i<all.length;i++){
+            for (var j=0;j<all[i].length;j++){
+                lines.push(all[i][j]);
+            }
+            if (i<all.length-1) lines.push("");
+        }
+        return lines.join("\r");
+    }
+
+    function findStyle(styleName){
+        var ps = doc.paragraphStyles.itemByName(styleName);
+        if (!ps.isValid) throw "Missing paragraph style: " + styleName;
+        return ps;
+    }
+
+    function styleInstructionsFrame(tf){
+        var bodyHeader=findStyle("BodyHeader");
+        var bodyCopy=findStyle("BodyCopy");
+        var paras=tf.parentStory.paragraphs;
+        for (var i=0;i<paras.length;i++){
+            var txt=trim(String(paras[i].contents).replace(/\r/g,""));
+            if (txt=="Placement" || txt=="Movement" || txt=="Breath"){
+                paras[i].appliedParagraphStyle=bodyHeader;
+            } else {
+                paras[i].appliedParagraphStyle=bodyCopy;
+            }
+        }
+    }
+
+    function removeIfExists(id){
+        var items=doc.allPageItems;
+        for (var i=items.length-1;i>=0;i--){
+            try {
+                if (items[i].name==id || items[i].label==id){
+                    items[i].remove();
+                    return;
+                }
+            } catch (e) {}
+        }
+    }
+
+    function buildInstructionsFrame(headers,row){
+        var movementFrame=getFrame(map.movement);
+        var breathFrame=getFrame(map.breath);
+
+        var mb=movementFrame.geometricBounds;
+        var bb=breathFrame.geometricBounds;
+
+        removeIfExists("InstructionsFrame");
+
+        var tf=doc.textFrames.add();
+        tf.name="InstructionsFrame";
+        tf.label="InstructionsFrame";
+        tf.geometricBounds=[mb[0], mb[1], bb[2], bb[3]];
+        tf.contents=buildInstructions(
+            val(headers,row,"placement"),
+            val(headers,row,"movement"),
+            val(headers,row,"breath")
+        );
+        styleInstructionsFrame(tf);
+    }
+
+    function resolveIllustrationPath(rawValue){
+        var name = trim(rawValue);
+        if (name === "") return placeholderPath;
+
+        // If the CSV already includes an extension, try that first.
+        var direct = File(illustrationsFolder.fsName + "/" + name);
+        if (direct.exists) return direct.fsName;
+
+        var jpg = File(illustrationsFolder.fsName + "/" + name + ".jpg");
+        if (jpg.exists) return jpg.fsName;
+
+        var jpeg = File(illustrationsFolder.fsName + "/" + name + ".jpeg");
+        if (jpeg.exists) return jpeg.fsName;
+
+        var png = File(illustrationsFolder.fsName + "/" + name + ".png");
+        if (png.exists) return png.fsName;
+
+        var tif = File(illustrationsFolder.fsName + "/" + name + ".tif");
+        if (tif.exists) return tif.fsName;
+
+        var tiff = File(illustrationsFolder.fsName + "/" + name + ".tiff");
+        if (tiff.exists) return tiff.fsName;
+
+        return placeholderPath;
+    }
+
+    try {
         var data=readCSV(dataCSV);
-        var map=readMappings(mappingsCSV);
+
+        // validate headers
+        var requiredHeaders = [
+            "title","level_label","level","reps_label","reps",
+            "works","benefits","imagery",
+            "thumb1","thumb2","thumb3",
+            "placement","movement","breath",
+            "tips","caution","qr_code"
+        ];
+        for (var h=0; h<requiredHeaders.length; h++){
+            requireHeader(data.headers, requiredHeaders[h]);
+        }
+
         var r=data.rows[0];
 
-        setText(requireMapping(map,"title"), val(data.headers,r,"title"));
-        setText(requireMapping(map,"level_label"), val(data.headers,r,"level_label"));
-        setText(requireMapping(map,"level"), levelDots(val(data.headers,r,"level")));
-        setText(requireMapping(map,"reps_label"), val(data.headers,r,"reps_label"));
-        setText(requireMapping(map,"reps"), val(data.headers,r,"reps"));
+        clearAndSetText(map.title, val(data.headers,r,"title"));
+        clearAndSetText(map.level_label, val(data.headers,r,"level_label"));
+        clearAndSetText(map.level, levelDots(val(data.headers,r,"level")));
+        clearAndSetText(map.reps_label, val(data.headers,r,"reps_label"));
+        clearAndSetText(map.reps, val(data.headers,r,"reps"));
+        clearAndSetText(map.works, val(data.headers,r,"works"));
+        clearAndSetText(map.benefits, val(data.headers,r,"benefits"));
+        clearAndSetText(map.imagery, val(data.headers,r,"imageryt"));
+        clearAndSetText(map.tips, val(data.headers,r,"tips"));
+        clearAndSetText(map.caution, val(data.headers,r,"caution"));
 
-        placeImage(requireMapping(map,"thumb1"), thumbPath);
-        placeImage(requireMapping(map,"thumb2"), thumbPath);
-        placeImage(requireMapping(map,"thumb3"), thumbPath);
-        placeImage(requireMapping(map,"qr_code"), qrPath);
+        // thumb1 / thumb2 / thumb3 refer to illustration names from the CSV.
+        placeImage(map.thumb1, resolveIllustrationPath(val(data.headers,r,"thumb1")));
+        placeImage(map.thumb2, resolveIllustrationPath(val(data.headers,r,"thumb2")));
+        placeImage(map.thumb3, resolveIllustrationPath(val(data.headers,r,"thumb3")));
+        placeImage(map.qr_code, qrPath);
 
-        alert("SUCCESS (mapping validation enabled)");
+        buildInstructionsFrame(data.headers, r);
 
+        alert("SUCCESS - ILLUSTRATIONS VERSION");
     } catch(e){
-        alert("ERROR:\n"+e);
+        alert("ERROR:\n" + e);
     }
 
 })();
