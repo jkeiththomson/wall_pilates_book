@@ -110,10 +110,10 @@
         var items=doc.allPageItems;
         for (var i=0;i<items.length;i++){
             try {
-                if (items[i].name == id || items[i].label == id) return items[i];
+                if (items[i].label == id) return items[i];
             } catch (e) {}
         }
-        throw "Missing frame (name/label): " + id;
+        throw "Missing frame label: " + id;
     }
 
     function clearAndSetText(id,val){
@@ -205,7 +205,7 @@
         var items=doc.allPageItems;
         for (var i=items.length-1;i>=0;i--){
             try {
-                if (items[i].name==id || items[i].label==id){
+                if (items[i].label==id){
                     items[i].remove();
                     return;
                 }
@@ -223,7 +223,6 @@
         removeIfExists("InstructionsFrame");
 
         var tf=doc.textFrames.add();
-        tf.name="InstructionsFrame";
         tf.label="InstructionsFrame";
         tf.geometricBounds=[mb[0], mb[1], bb[2], bb[3]];
         tf.contents=buildInstructions(
@@ -284,7 +283,7 @@
         clearAndSetText(map.reps, val(data.headers,r,"reps"));
         clearAndSetText(map.works, val(data.headers,r,"works"));
         clearAndSetText(map.benefits, val(data.headers,r,"benefits"));
-        clearAndSetText(map.imagery, val(data.headers,r,"imageryt"));
+        clearAndSetText(map.imagery, val(data.headers,r,"imagery"));
         clearAndSetText(map.tips, val(data.headers,r,"tips"));
         clearAndSetText(map.caution, val(data.headers,r,"caution"));
 
@@ -296,7 +295,7 @@
 
         buildInstructionsFrame(data.headers, r);
 
-        alert("SUCCESS - ILLUSTRATIONS VERSION");
+        alert("SUCCESS - LABELS VERSION");
     } catch(e){
         alert("ERROR:\n" + e);
     }
