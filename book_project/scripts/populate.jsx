@@ -19,15 +19,35 @@
     var illustrationsFolder = Folder(base.fsName + "/illustrations");
 
     if (!dataCSV.exists) {
-        alert("Missing data.csv in selected assets folder.");
+        alert("Missing data.csv in assets folder.");
         return;
     }
-    if (!File(placeholderPath).exists) {
-        alert("Missing placeholder.jpg in selected assets folder.");
+    if (!placeholderPath) {
+        alert(
+            "Missing thumbnail placeholder in assets/illustrations folder.\n
+" +
+            "Expected one of:
+" +
+            "placeholder.jpg
+" +
+            "placeholder.jpeg
+" +
+            "placeholder.png"
+        );
         return;
     }
-    if (!File(qrPath).exists) {
-        alert("Missing qr_placeholder.png in selected assets folder.");
+    if (!qrPath) {
+        alert(
+            "Missing QR placeholder in assets/QRcodes folder.\n
+" +
+            "Expected one of:
+" +
+            "qr_placeholder.png
+" +
+            "qr_placeholder.jpg
+" +
+            "qr_placeholder.jpeg"
+        );
         return;
     }
     if (!illustrationsFolder.exists) {

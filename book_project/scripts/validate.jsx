@@ -27,9 +27,9 @@
     // ============================================================
     // HARD-CODE YOUR ASSETS FOLDER HERE
     // Example:
-    // "/Users/keith/dev/yy/wall_pilates_book/book_project/assets"
+    // "/Users/keith/dev/xx/wall_pilates_book/book_project/assets"
     // ============================================================
-    var ASSETS_FOLDER = "/Users/keith/dev/yy/wall_pilates_book/book_project/assets";
+    var ASSETS_FOLDER = "/Users/keith/dev/xx/wall_pilates_book/book_project/assets";
 
     var base = Folder(ASSETS_FOLDER);
     if (!base.exists) {
