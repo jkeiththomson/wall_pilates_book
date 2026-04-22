@@ -1,6 +1,30 @@
 #target indesign
 
-function () {
+
+(function () {
+    try {
+        if (app.documents.length === 0) {
+            alert("No document open.");
+            return;
+        }
+
+        var doc = app.activeDocument;
+        alert("populate.jsx starting on: " + doc.name);
+
+        // 👉 your existing logic starts here
+
+
+        alert("SUCCESS — script completed");
+
+    } catch (e) {
+        alert("ERROR:\n" + e + "\nLine: " + (e.line || "unknown"));
+    }
+})();
+
+
+(function () {
+    
+    alert("Script entry OK");
 
     if (app.documents.length === 0) {
         alert("Open your InDesign template document first.");
@@ -280,7 +304,8 @@ function () {
             requireHeader(data.headers, requiredHeaders[h]);
         }
 
-        var r=data.rows[0];
+        var rowIndex = 3; // change this number
+        var r = data.rows[rowIndex];
 
         clearAndSetText(map.title, val(data.headers,r,"title"));
         clearAndSetText(map.level_label, val(data.headers,r,"level_label"));
