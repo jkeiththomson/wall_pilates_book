@@ -336,6 +336,87 @@
         }
     }
 
+    function getCharacterStyle(styleName) {
+        var style;
+
+        try {
+            style = app.activeDocument.characterStyles.itemByName(styleName);
+            if (style && style.isValid) {
+                return style;
+            }
+        } catch (e) {}
+
+        die(
+            "Missing character style: " + styleName +
+            "\nCreate this as a Character Style in the template document."
+        );
+    }
+
+    function getFrameId(item) {
+        try { return item.name || item.label || "[unnamed]"; } catch (e) { return "[unnamed]"; }
+    }
+
+    function assertTextCapableFrame(item, frameId) {
+        try {
+            if (!item.hasOwnProperty("contents")) {
+                die("Title target is not a text-capable frame: " + frameId);
+            }
+        } catch (e) {
+            die("Could not inspect title frame: " + frameId + "\nDetails: " + e);
+        }
+    }
+
+    function setStyledTitleFrame(item, titleValue, subtitleValue) {
+        var titleText = String(titleValue || "");
+        var subtitleText = String(subtitleValue || "");
+
+        // This is the visible separator character between title and subtitle.
+        // It is styled with ExerciseSubtitle.
+        var separatorText = " | ";
+
+        var titleStyle = getCharacterStyle("ExerciseTitle");
+        var subtitleStyle = getCharacterStyle("ExerciseSubtitle");
+        var titleLen = titleText.length;
+        var separatorLen = separatorText.length;
+        var subtitleLen = subtitleText.length;
+        var fullText = titleText + separatorText + subtitleText;
+        var frameId = getFrameId(item);
+        var story;
+
+        assertTextCapableFrame(item, frameId);
+
+        try {
+            item.contents = fullText;
+            story = item.parentStory;
+
+            if (!story || !story.isValid) {
+                die("Could not access parent story for title frame: " + frameId);
+            }
+
+            if (titleLen > 0) {
+                story.characters.itemByRange(0, titleLen - 1).appliedCharacterStyle = titleStyle;
+            }
+
+            story.characters.itemByRange(titleLen, titleLen + separatorLen - 1).appliedCharacterStyle = subtitleStyle;
+
+            if (subtitleLen > 0) {
+                story.characters.itemByRange(
+                    titleLen + separatorLen,
+                    titleLen + separatorLen + subtitleLen - 1
+                ).appliedCharacterStyle = subtitleStyle;
+            }
+        } catch (e) {
+            die(
+                "Could not compose styled title in frame: " + frameId +
+                "\nFull title text: " + fullText +
+                "\nTitle length: " + titleLen +
+                "\nSeparator: " + separatorText +
+                "\nSubtitle length: " + subtitleLen +
+                "\nCheck that ExerciseTitle and ExerciseSubtitle are CHARACTER styles, not paragraph styles." +
+                "\nDetails: " + e
+            );
+        }
+    }
     function fitGraphicFrame(item) {
         try { item.fit(FitOptions.PROPORTIONALLY); } catch (e1) {}
         try { item.fit(FitOptions.CENTER_CONTENT); } catch (e2) {}
@@ -401,7 +482,7 @@
                 clearFrame(frameObj);
 
                 if (key === "title") {
-                    setTextFrame(frameObj, record["title"] + record["subtitle"]);
+                    setStyledTitleFrame(frameObj, record["title"], record["subtitle"]);
                 } else {
                     setTextFrame(frameObj, record[key]);
                 }
