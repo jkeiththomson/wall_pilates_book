@@ -352,6 +352,22 @@
         );
     }
 
+    function getParagraphStyle(styleName) {
+        var style;
+
+        try {
+            style = app.activeDocument.paragraphStyles.itemByName(styleName);
+            if (style && style.isValid) {
+                return style;
+            }
+        } catch (e) {}
+
+        die(
+            "Missing paragraph style: " + styleName +
+            "\nCreate this as a Paragraph Style in the template document."
+        );
+    }
+
     function getFrameId(item) {
         try { return item.name || item.label || "[unnamed]"; } catch (e) { return "[unnamed]"; }
     }
@@ -456,6 +472,111 @@
         }
     }
 
+    function isInstructionSourceKey(key) {
+        return key === "placement" || key === "movement" || key === "breath";
+    }
+
+    function splitInstructionBody(value) {
+        var text = normalizeLineBreaks(String(value || ""));
+        var raw = text.split("\n");
+        var out = [];
+        var i;
+
+        for (i = 0; i < raw.length; i++) {
+            out.push(trim(raw[i]));
+        }
+
+        if (out.length === 0) {
+            out.push("");
+        }
+
+        return out;
+    }
+
+    function removeGeneratedInstructionsFrames(page) {
+        var items = getPageItems(page);
+        var i, item, name, label;
+
+        for (i = items.length - 1; i >= 0; i--) {
+            item = items[i];
+            name = "";
+            label = "";
+            try { name = item.name || ""; } catch (e1) {}
+            try { label = item.label || ""; } catch (e2) {}
+
+            if (name === "InstructionsFrame" || label === "InstructionsFrame") {
+                try { item.remove(); } catch (e3) {}
+            }
+        }
+    }
+
+    function clearInstructionSourceFrame(item) {
+        try {
+            if (item.hasOwnProperty("contents")) {
+                item.contents = "";
+            }
+        } catch (e) {}
+    }
+
+    function composeInstructionsFrame(page, record, mappings) {
+        var placementFrame = resolveFrameOnPage(page, mappings["placement"], record);
+        var movementFrame = resolveFrameOnPage(page, mappings["movement"], record);
+        var breathFrame = resolveFrameOnPage(page, mappings["breath"], record);
+        var headerStyle = getParagraphStyle("InstructionsHeader");
+        var bodyStyle = getParagraphStyle("InstructionsBody");
+        var pBounds, bBounds, newBounds, instructionsFrame, story;
+        var paragraphs = [];
+        var styles = [];
+        var bodyLines;
+        var i, j;
+
+        try {
+            pBounds = placementFrame.geometricBounds;
+            bBounds = breathFrame.geometricBounds;
+            newBounds = [pBounds[0], pBounds[1], bBounds[2], bBounds[3]];
+        } catch (e) {
+            die("Could not calculate InstructionsFrame geometry from PlacementFrame and BreathFrame.\nCSV num: " + record["num"] + "\nDetails: " + e);
+        }
+
+        function addSection(headerText, bodyText) {
+            paragraphs.push(headerText);
+            styles.push(headerStyle);
+            bodyLines = splitInstructionBody(bodyText);
+            for (j = 0; j < bodyLines.length; j++) {
+                paragraphs.push(bodyLines[j]);
+                styles.push(bodyStyle);
+            }
+        }
+
+        addSection("Placement", record["placement"]);
+        addSection("Movement", record["movement"]);
+        addSection("Breath", record["breath"]);
+
+        removeGeneratedInstructionsFrames(page);
+
+        try {
+            instructionsFrame = page.textFrames.add();
+            instructionsFrame.geometricBounds = newBounds;
+            instructionsFrame.name = "InstructionsFrame";
+            instructionsFrame.label = "InstructionsFrame";
+            try { instructionsFrame.itemLayer = placementFrame.itemLayer; } catch (eLayer) {}
+            instructionsFrame.contents = paragraphs.join("\r");
+            story = instructionsFrame.parentStory;
+
+            for (i = 0; i < styles.length; i++) {
+                if (i < story.paragraphs.length) {
+                    story.paragraphs[i].appliedParagraphStyle = styles[i];
+                }
+            }
+        } catch (e2) {
+            die("Could not create or style InstructionsFrame.\nCSV num: " + record["num"] + "\nDetails: " + e2);
+        }
+
+        clearInstructionSourceFrame(placementFrame);
+        clearInstructionSourceFrame(movementFrame);
+        clearInstructionSourceFrame(breathFrame);
+    }
+
     function populatePage(page, record, mappings, base, placeholderFile, qrPlaceholderFile) {
         var key, frameName, frameObj;
 
@@ -471,6 +592,10 @@
 
             frameName = mappings[key];
             frameObj = resolveFrameOnPage(page, frameName, record);
+
+            if (isInstructionSourceKey(key)) {
+                continue;
+            }
 
             if (IMAGE_FIELDS[key]) {
                 if (key === "qr_code") {
@@ -488,6 +613,8 @@
                 }
             }
         }
+
+        composeInstructionsFrame(page, record, mappings);
     }
 
     function clearExtraPages(doc) {
