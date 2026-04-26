@@ -1,6 +1,8 @@
 #target indesign
 
 (function () {
+
+
     // ============================================================
     // STRICT POPULATE BASELINE - V8 MULTI-ROW
     // - Exact CSV headers only
@@ -34,6 +36,8 @@
         "thumb6",
         "qr_code"
     ];
+
+    var MAX_ROWS = 10;
 
     var IMAGE_FIELDS = {
         thumb1: true,
@@ -124,7 +128,7 @@
             var last = rows[rows.length - 1];
             var allEmpty = true;
             for (i = 0; i < last.length; i++) {
-                if (trim(last[i]) !== "") {
+if (trim(last[i]) !== "") {
                     allEmpty = false;
                     break;
                 }
@@ -415,7 +419,6 @@
             );
         }
     }
-
     function getParagraphStyle(styleName) {
         var style;
 
@@ -504,42 +507,37 @@
         return instructionsFrame;
     }
 
-    function applyInstructionBodyStyles(textFrame, bodyPlainStyle) {
-        var bulletStyle = getParagraphStyle("InstructionsBodyBullet");
-        var numberStyle = getParagraphStyle("InstructionsBodyNumber");
+    function applyInstructionBullets(textFrame, bodyStyle) {
         var paras = textFrame.paragraphs;
-        var i, p, text, lineText, suffix, suffixMatch;
+        var i, p, text, bulletMatch, numberedMatch;
 
         for (i = 0; i < paras.length; i++) {
             p = paras[i];
 
             try {
-                if (p.appliedParagraphStyle !== bodyPlainStyle) continue;
+                if (p.appliedParagraphStyle !== bodyStyle) {
+                    continue;
+                }
             } catch (e1) {
                 continue;
             }
 
-            text = String(p.contents || "");
-            suffixMatch = text.match(/[\r\n]+$/);
-            suffix = suffixMatch ? suffixMatch[0] : "";
-            lineText = text.replace(/[\r\n]+$/g, "");
+            text = p.contents || "";
+            bulletMatch = text.match(/^\*\s+/);
+            numberedMatch = text.match(/^[1-6](?:[\.)])?\s+/);
 
             try {
-                if (/^\*/.test(lineText)) {
-                    p.contents = lineText.replace(/^\*/, "") + suffix;
-                    p.appliedParagraphStyle = bulletStyle;
-                } else if (/^[0-9]+\./.test(lineText)) {
-                    p.contents = lineText.replace(/^[0-9]+\./, "") + suffix;
-                    p.appliedParagraphStyle = numberStyle;
+                if (bulletMatch) {
+                    p.contents = text.replace(/^\*\s+/, "");
+                    p.bulletsAndNumberingListType = ListType.BULLET_LIST;
+                } else if (numberedMatch) {
+                    p.contents = text.replace(/^[1-6](?:[\.)])?\s+/, "");
+                    p.bulletsAndNumberingListType = ListType.NUMBERED_LIST;
                 } else {
-                    p.appliedParagraphStyle = bodyPlainStyle;
+                    p.bulletsAndNumberingListType = ListType.NO_LIST;
                 }
             } catch (e2) {
-                die(
-                    "Could not apply instruction paragraph style.\n" +
-                    "Paragraph text: " + text + "\n" +
-                    "Details: " + e2
-                );
+                die("Could not apply instruction bullet/numbering in InstructionsFrame.\nParagraph text: " + text + "\nDetails: " + e2);
             }
         }
     }
@@ -585,7 +583,7 @@
                 }
             }
 
-            applyInstructionBodyStyles(instructionsFrame, bodyStyle);
+            applyInstructionBullets(instructionsFrame, bodyStyle);
         } catch (e) {
             die("Could not populate InstructionsFrame on page " + page.name + "\nCSV num: " + record["num"] + "\nDetails: " + e);
         }
@@ -686,36 +684,50 @@
         var doc = app.activeDocument;
 
         if (!doc.saved) {
-            die("Save the InDesign document before running populate.jsx.\n\nThe script looks for an assets folder next to the saved .indd file.");
+            die("Save the InDesign document before running populate.jsx.");
         }
 
-        var docFolder = Folder(doc.filePath.fsName);
-        var base;
+        // Strict project structure:
+        //   keith_project/
+        //     assets/   <-- the open .indd file must live here
+        //     scripts/
+        var base = doc.fullName.parent;
 
-        // Normal case: the .indd file is in the project folder, and assets is beside it.
-        var assetsBesideDocument = Folder(docFolder.fsName + "/assets");
+        if (base.name !== "assets") {
+            die("Invalid project structure.\n\nThe InDesign document must live directly inside the assets folder.\n\nCurrent document folder:\n" + base.fsName);
+        }
 
-        // Alternate case: the .indd file is already saved inside the assets folder.
-        // In that case, do not append another /assets.
-        if (docFolder.name === "assets") {
-            base = docFolder;
-        } else if (assetsBesideDocument.exists) {
-            base = assetsBesideDocument;
-        } else {
-            die("Could not find assets folder.\n\nTried:\n" + assetsBesideDocument.fsName + "\n\nAlso checked whether the InDesign document itself is inside an assets folder. Current document folder:\n" + docFolder.fsName);
+        var projectFolder = base.parent;
+        var scriptsFolder = Folder(projectFolder.fsName + "/scripts");
+
+        if (!scriptsFolder.exists) {
+            die("Missing required scripts folder next to assets folder:\n" + scriptsFolder.fsName);
         }
 
         var dataCSV = File(base.fsName + "/data.csv");
         var mappingsCSV = File(base.fsName + "/mappings.csv");
         var placeholderFile = File(base.fsName + "/placeholder.jpg");
         var qrPlaceholderFile = File(base.fsName + "/qr_placeholder.png");
+        var illustrationsFolder = Folder(base.fsName + "/illustrations");
+
+        if (!dataCSV.exists) {
+            die("Missing data.csv in assets folder:\n" + dataCSV.fsName);
+        }
+
+        if (!mappingsCSV.exists) {
+            die("Missing mappings.csv in assets folder:\n" + mappingsCSV.fsName);
+        }
 
         if (!placeholderFile.exists) {
-            die("Missing placeholder image:\n" + placeholderFile.fsName);
+            die("Missing placeholder.jpg in assets folder:\n" + placeholderFile.fsName);
         }
 
         if (!qrPlaceholderFile.exists) {
-            die("Missing QR placeholder image:\n" + qrPlaceholderFile.fsName);
+            die("Missing qr_placeholder.png in assets folder:\n" + qrPlaceholderFile.fsName);
+        }
+
+        if (!illustrationsFolder.exists) {
+            die("Missing illustrations folder in assets folder:\n" + illustrationsFolder.fsName);
         }
 
         var mappings = loadMappings(mappingsCSV);
@@ -723,13 +735,20 @@
 
         var records = loadDataRows(dataCSV);
 
+        if (records.length > MAX_ROWS) {
+            records = records.slice(0, MAX_ROWS);
+        }
+
         clearExtraPages(doc);
 
         var templatePage = doc.pages[0];
         var currentPage;
         var i;
+var rowsCompleted = 0;
 
-        for (i = 0; i < records.length; i++) {
+        app.scriptPreferences.enableRedraw = true;
+
+        for (i = 0; i < records.length && rowsCompleted < MAX_ROWS; i++) {
             if (i === 0) {
                 currentPage = templatePage;
             } else {
@@ -737,10 +756,11 @@
             }
 
             populatePage(currentPage, records[i], mappings, base, placeholderFile, qrPlaceholderFile);
-        }
-
-        alert("Populate complete.\nRows populated: " + records.length + "\nDocument: " + doc.name);
-    }
+            rowsCompleted++;
+}
+}
 
     main();
+
+
 })();
