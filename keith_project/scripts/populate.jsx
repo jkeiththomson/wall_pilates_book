@@ -11,8 +11,6 @@
     // - Uses page-scoped frame resolution after duplicating pages
     // ============================================================
 
-    var ASSETS_PATH = "/Users/keith/dev/xx/wall_pilates_book/keith_project/assets";
-
     var REQUIRED_HEADERS = [
         "num",
         "title",
@@ -352,22 +350,6 @@
         );
     }
 
-    function getParagraphStyle(styleName) {
-        var style;
-
-        try {
-            style = app.activeDocument.paragraphStyles.itemByName(styleName);
-            if (style && style.isValid) {
-                return style;
-            }
-        } catch (e) {}
-
-        die(
-            "Missing paragraph style: " + styleName +
-            "\nCreate this as a Paragraph Style in the template document."
-        );
-    }
-
     function getFrameId(item) {
         try { return item.name || item.label || "[unnamed]"; } catch (e) { return "[unnamed]"; }
     }
@@ -433,6 +415,182 @@
             );
         }
     }
+
+    function getParagraphStyle(styleName) {
+        var style;
+
+        try {
+            style = app.activeDocument.paragraphStyles.itemByName(styleName);
+            if (style && style.isValid) {
+                return style;
+            }
+        } catch (e) {}
+
+        die(
+            "Missing paragraph style: " + styleName +
+            "\nCreate this as a Paragraph Style in the template document."
+        );
+    }
+
+    function splitInstructionBodyLines(value) {
+        var text = normalizeLineBreaks(value || "");
+        var rawLines = text.split("\n");
+        var lines = [];
+        var i, line;
+
+        for (i = 0; i < rawLines.length; i++) {
+            line = String(rawLines[i]).replace(/\s+$/g, "");
+            if (trim(line) !== "") {
+                lines.push(line);
+            }
+        }
+
+        return lines;
+    }
+
+    function resolveOptionalFrameOnPage(page, frameName, record) {
+        var items = getPageItems(page);
+        var matches = [];
+        var i, item, name, label;
+
+        for (i = 0; i < items.length; i++) {
+            item = items[i];
+            name = "";
+            label = "";
+
+            try { name = item.name || ""; } catch (e1) {}
+            try { label = item.label || ""; } catch (e2) {}
+
+            if (name === frameName || label === frameName) {
+                matches.push(item);
+            }
+        }
+
+        if (matches.length > 1) {
+            die("Duplicate frame matches on page " + page.name + ": " + frameName + "\nCSV num: " + record["num"]);
+        }
+
+        return matches.length === 1 ? matches[0] : null;
+    }
+
+    function createOrResolveInstructionsFrame(page, placementFrame, breathFrame, record) {
+        var instructionsFrame = resolveOptionalFrameOnPage(page, "InstructionsFrame", record);
+        var gb1, gb2, bounds;
+
+        try {
+            gb1 = placementFrame.geometricBounds;
+            gb2 = breathFrame.geometricBounds;
+            bounds = [gb1[0], gb1[1], gb2[2], gb2[3]];
+        } catch (e) {
+            die("Could not calculate InstructionsFrame bounds from PlacementFrame and BreathFrame.\nCSV num: " + record["num"] + "\nDetails: " + e);
+        }
+
+        if (!instructionsFrame) {
+            try {
+                instructionsFrame = page.textFrames.add();
+                instructionsFrame.name = "InstructionsFrame";
+                instructionsFrame.label = "InstructionsFrame";
+            } catch (e2) {
+                die("Could not create InstructionsFrame on page " + page.name + "\nCSV num: " + record["num"] + "\nDetails: " + e2);
+            }
+        }
+
+        try {
+            instructionsFrame.geometricBounds = bounds;
+        } catch (e3) {
+            die("Could not set InstructionsFrame bounds on page " + page.name + "\nCSV num: " + record["num"] + "\nDetails: " + e3);
+        }
+
+        return instructionsFrame;
+    }
+
+    function applyInstructionBodyStyles(textFrame, bodyPlainStyle) {
+        var bulletStyle = getParagraphStyle("InstructionsBodyBullet");
+        var numberStyle = getParagraphStyle("InstructionsBodyNumber");
+        var paras = textFrame.paragraphs;
+        var i, p, text, lineText, suffix, suffixMatch;
+
+        for (i = 0; i < paras.length; i++) {
+            p = paras[i];
+
+            try {
+                if (p.appliedParagraphStyle !== bodyPlainStyle) continue;
+            } catch (e1) {
+                continue;
+            }
+
+            text = String(p.contents || "");
+            suffixMatch = text.match(/[\r\n]+$/);
+            suffix = suffixMatch ? suffixMatch[0] : "";
+            lineText = text.replace(/[\r\n]+$/g, "");
+
+            try {
+                if (/^\*/.test(lineText)) {
+                    p.contents = lineText.replace(/^\*/, "") + suffix;
+                    p.appliedParagraphStyle = bulletStyle;
+                } else if (/^[0-9]+\./.test(lineText)) {
+                    p.contents = lineText.replace(/^[0-9]+\./, "") + suffix;
+                    p.appliedParagraphStyle = numberStyle;
+                } else {
+                    p.appliedParagraphStyle = bodyPlainStyle;
+                }
+            } catch (e2) {
+                die(
+                    "Could not apply instruction paragraph style.\n" +
+                    "Paragraph text: " + text + "\n" +
+                    "Details: " + e2
+                );
+            }
+        }
+    }
+
+    function populateInstructionsFrame(page, record, mappings) {
+        var placementFrame = resolveFrameOnPage(page, mappings["placement"], record);
+        var breathFrame = resolveFrameOnPage(page, mappings["breath"], record);
+        var instructionsFrame = createOrResolveInstructionsFrame(page, placementFrame, breathFrame, record);
+        var headerStyle = getParagraphStyle("InstructionsHeader");
+        var bodyStyle = getParagraphStyle("InstructionsBodyPlain");
+        var parts = [];
+        var roles = [];
+
+        function addSection(header, bodyValue) {
+            var lines = splitInstructionBodyLines(bodyValue);
+            var i;
+
+            parts.push(header);
+            roles.push("header");
+
+            for (i = 0; i < lines.length; i++) {
+                parts.push(lines[i]);
+                roles.push("body");
+            }
+        }
+
+        // MovementFrame still must exist because mappings.csv requires it,
+        // but the combined frame geometry is PlacementFrame top-left to BreathFrame bottom-right.
+        resolveFrameOnPage(page, mappings["movement"], record);
+
+        addSection("Placement", record["placement"]);
+        addSection("Movement", record["movement"]);
+        addSection("Breath", record["breath"]);
+
+        try {
+            instructionsFrame.contents = parts.join("\r");
+
+            for (var i = 0; i < roles.length && i < instructionsFrame.paragraphs.length; i++) {
+                if (roles[i] === "header") {
+                    instructionsFrame.paragraphs[i].appliedParagraphStyle = headerStyle;
+                } else {
+                    instructionsFrame.paragraphs[i].appliedParagraphStyle = bodyStyle;
+                }
+            }
+
+            applyInstructionBodyStyles(instructionsFrame, bodyStyle);
+        } catch (e) {
+            die("Could not populate InstructionsFrame on page " + page.name + "\nCSV num: " + record["num"] + "\nDetails: " + e);
+        }
+    }
+
     function fitGraphicFrame(item) {
         try { item.fit(FitOptions.PROPORTIONALLY); } catch (e1) {}
         try { item.fit(FitOptions.CENTER_CONTENT); } catch (e2) {}
@@ -472,111 +630,6 @@
         }
     }
 
-    function isInstructionSourceKey(key) {
-        return key === "placement" || key === "movement" || key === "breath";
-    }
-
-    function splitInstructionBody(value) {
-        var text = normalizeLineBreaks(String(value || ""));
-        var raw = text.split("\n");
-        var out = [];
-        var i;
-
-        for (i = 0; i < raw.length; i++) {
-            out.push(trim(raw[i]));
-        }
-
-        if (out.length === 0) {
-            out.push("");
-        }
-
-        return out;
-    }
-
-    function removeGeneratedInstructionsFrames(page) {
-        var items = getPageItems(page);
-        var i, item, name, label;
-
-        for (i = items.length - 1; i >= 0; i--) {
-            item = items[i];
-            name = "";
-            label = "";
-            try { name = item.name || ""; } catch (e1) {}
-            try { label = item.label || ""; } catch (e2) {}
-
-            if (name === "InstructionsFrame" || label === "InstructionsFrame") {
-                try { item.remove(); } catch (e3) {}
-            }
-        }
-    }
-
-    function clearInstructionSourceFrame(item) {
-        try {
-            if (item.hasOwnProperty("contents")) {
-                item.contents = "";
-            }
-        } catch (e) {}
-    }
-
-    function composeInstructionsFrame(page, record, mappings) {
-        var placementFrame = resolveFrameOnPage(page, mappings["placement"], record);
-        var movementFrame = resolveFrameOnPage(page, mappings["movement"], record);
-        var breathFrame = resolveFrameOnPage(page, mappings["breath"], record);
-        var headerStyle = getParagraphStyle("InstructionsHeader");
-        var bodyStyle = getParagraphStyle("InstructionsBody");
-        var pBounds, bBounds, newBounds, instructionsFrame, story;
-        var paragraphs = [];
-        var styles = [];
-        var bodyLines;
-        var i, j;
-
-        try {
-            pBounds = placementFrame.geometricBounds;
-            bBounds = breathFrame.geometricBounds;
-            newBounds = [pBounds[0], pBounds[1], bBounds[2], bBounds[3]];
-        } catch (e) {
-            die("Could not calculate InstructionsFrame geometry from PlacementFrame and BreathFrame.\nCSV num: " + record["num"] + "\nDetails: " + e);
-        }
-
-        function addSection(headerText, bodyText) {
-            paragraphs.push(headerText);
-            styles.push(headerStyle);
-            bodyLines = splitInstructionBody(bodyText);
-            for (j = 0; j < bodyLines.length; j++) {
-                paragraphs.push(bodyLines[j]);
-                styles.push(bodyStyle);
-            }
-        }
-
-        addSection("Placement", record["placement"]);
-        addSection("Movement", record["movement"]);
-        addSection("Breath", record["breath"]);
-
-        removeGeneratedInstructionsFrames(page);
-
-        try {
-            instructionsFrame = page.textFrames.add();
-            instructionsFrame.geometricBounds = newBounds;
-            instructionsFrame.name = "InstructionsFrame";
-            instructionsFrame.label = "InstructionsFrame";
-            try { instructionsFrame.itemLayer = placementFrame.itemLayer; } catch (eLayer) {}
-            instructionsFrame.contents = paragraphs.join("\r");
-            story = instructionsFrame.parentStory;
-
-            for (i = 0; i < styles.length; i++) {
-                if (i < story.paragraphs.length) {
-                    story.paragraphs[i].appliedParagraphStyle = styles[i];
-                }
-            }
-        } catch (e2) {
-            die("Could not create or style InstructionsFrame.\nCSV num: " + record["num"] + "\nDetails: " + e2);
-        }
-
-        clearInstructionSourceFrame(placementFrame);
-        clearInstructionSourceFrame(movementFrame);
-        clearInstructionSourceFrame(breathFrame);
-    }
-
     function populatePage(page, record, mappings, base, placeholderFile, qrPlaceholderFile) {
         var key, frameName, frameObj;
 
@@ -593,7 +646,9 @@
             frameName = mappings[key];
             frameObj = resolveFrameOnPage(page, frameName, record);
 
-            if (isInstructionSourceKey(key)) {
+            if (key === "placement" || key === "movement" || key === "breath") {
+                // These source frames define the combined InstructionsFrame.
+                // They are intentionally not populated as separate visible content.
                 continue;
             }
 
@@ -614,7 +669,7 @@
             }
         }
 
-        composeInstructionsFrame(page, record, mappings);
+        populateInstructionsFrame(page, record, mappings);
     }
 
     function clearExtraPages(doc) {
@@ -629,10 +684,25 @@
         }
 
         var doc = app.activeDocument;
-        var base = Folder(ASSETS_PATH);
 
-        if (!base.exists) {
-            die("Assets folder does not exist:\n" + base.fsName);
+        if (!doc.saved) {
+            die("Save the InDesign document before running populate.jsx.\n\nThe script looks for an assets folder next to the saved .indd file.");
+        }
+
+        var docFolder = Folder(doc.filePath.fsName);
+        var base;
+
+        // Normal case: the .indd file is in the project folder, and assets is beside it.
+        var assetsBesideDocument = Folder(docFolder.fsName + "/assets");
+
+        // Alternate case: the .indd file is already saved inside the assets folder.
+        // In that case, do not append another /assets.
+        if (docFolder.name === "assets") {
+            base = docFolder;
+        } else if (assetsBesideDocument.exists) {
+            base = assetsBesideDocument;
+        } else {
+            die("Could not find assets folder.\n\nTried:\n" + assetsBesideDocument.fsName + "\n\nAlso checked whether the InDesign document itself is inside an assets folder. Current document folder:\n" + docFolder.fsName);
         }
 
         var dataCSV = File(base.fsName + "/data.csv");
