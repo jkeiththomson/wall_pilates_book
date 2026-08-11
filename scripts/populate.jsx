@@ -6,14 +6,14 @@
     // populate.jsx - zero-base dynamic template version
     //
     // Agreed project contract:
-    //   keith_project/
+    //   wall_pilates_book/
     //     assets/
-    //       data.csv
-    //       mappings.csv
-    //       placeholder.jpg
-    //       qr_placeholder.png
+    //       csv/data.csv
+    //       csv/mappings.csv
+    //       placeholders/placeholder.jpg
+    //       placeholders/qr_placeholder.png
     //       illustrations/
-    //       QRcodes/                 optional, if qr_code names point there
+    //       qr_codes/                optional, if qr_code names point there
     //       templates/
     //         template-1-h.indd
     //         template-1-v.indd
@@ -28,7 +28,9 @@
     // It imports one template page per CSV row from assets/templates.
     // ============================================================
 
-    var PROJECT_FOLDER_PATH = "/Users/keith/dev/ww/wall_pilates_book/keith_project";
+    // Resolve the project root from this file: <project>/scripts/populate.jsx.
+    // This keeps the project portable when the folder is moved or shared.
+    var PROJECT_FOLDER_PATH = File($.fileName).parent.parent.fsName;
 
     // Set to null for all rows. Keep small while testing.
     var MAX_ROWS = null;
@@ -424,11 +426,11 @@
             fileObj = File(assetsFolder.fsName + "/" + value);
             if (fileObj.exists) return fileObj;
 
-            fileObj = File(assetsFolder.fsName + "/QRcodes/" + value);
+            fileObj = File(assetsFolder.fsName + "/qr_codes/" + value);
             if (fileObj.exists) return fileObj;
         }
 
-        return File(assetsFolder.fsName + "/qr_placeholder.png");
+        return File(assetsFolder.fsName + "/placeholders/qr_placeholder.png");
     }
 
     function detectOrientationFromImage(imageFile) {
@@ -555,7 +557,7 @@
 
             if (key === "title") {
                 setStyledTitle(outputDoc, frame, record.title, record.subtitle);
-            } else if (THUMB_FIELDS[key]) {
+            } else if (THUMB_FIELDS[key] && trim(record[key]) !== "") {
                 placeImage(frame, getThumbnailFile(assetsFolder, trim(record[key]), record));
             } else if (key === "qr_code") {
                 placeImage(frame, getQRFile(assetsFolder, record.qr_code));
@@ -576,10 +578,10 @@
         validateNoTemplatesDirectlyInAssets(assetsFolder);
         validateTemplateFiles(templatesFolder);
 
-        var dataCSV = requireFile(assetsFolder.fsName + "/data.csv", "data.csv");
-        var mappingsCSV = requireFile(assetsFolder.fsName + "/mappings.csv", "mappings.csv");
-        requireFile(assetsFolder.fsName + "/placeholder.jpg", "placeholder.jpg");
-        requireFile(assetsFolder.fsName + "/qr_placeholder.png", "qr_placeholder.png");
+        var dataCSV = requireFile(assetsFolder.fsName + "/csv/data.csv", "data.csv");
+        var mappingsCSV = requireFile(assetsFolder.fsName + "/csv/mappings.csv", "mappings.csv");
+        requireFile(assetsFolder.fsName + "/placeholders/placeholder.jpg", "placeholder.jpg");
+        requireFile(assetsFolder.fsName + "/placeholders/qr_placeholder.png", "qr_placeholder.png");
 
         var mappings = loadMappings(mappingsCSV);
         validateMappings(mappings);
